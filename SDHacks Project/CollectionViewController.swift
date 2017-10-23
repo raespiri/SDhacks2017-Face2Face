@@ -31,7 +31,7 @@ class CollectionViewController: UICollectionViewController,UICollectionViewDeleg
         layout.minimumLineSpacing = 0
         collectionView!.collectionViewLayout = layout
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: {
             self.collectionView?.reloadData()
         })
     }

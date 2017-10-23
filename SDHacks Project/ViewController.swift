@@ -44,6 +44,13 @@ class ViewController: UIViewController,AVCaptureVideoDataOutputSampleBufferDeleg
     let audioEngine = AVAudioEngine()
     var secondsWithoutMouthMovement = 0
     
+    var assetWriterInput: AVAssetWriterInput?
+    var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+    var assetWriter: AVAssetWriter?
+    var frameNumber: Int64 = 0
+
+    var file_url: URL?
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -55,7 +62,6 @@ class ViewController: UIViewController,AVCaptureVideoDataOutputSampleBufferDeleg
         
         // Do any additional setup after loading the view, typically from a nib.
         session = AVCaptureSession()
-//        output = AVCaptureVideoDataOutput()
 //        outputMovie = AVCaptureMovieFileOutput()
 //        output?.alwaysDiscardsLateVideoFrames = true
         
@@ -87,7 +93,6 @@ class ViewController: UIViewController,AVCaptureVideoDataOutputSampleBufferDeleg
             
             let queue = DispatchQueue(label: "videoQueue", qos: .background, attributes: .concurrent)
             dataOutput.setSampleBufferDelegate(self, queue: queue)
-            
         }
         catch let error as NSError {
             NSLog("\(error), \(error.localizedDescription)")
@@ -149,6 +154,18 @@ class ViewController: UIViewController,AVCaptureVideoDataOutputSampleBufferDeleg
             recognitionRequest?.endAudio()
             captureButton.setImage(UIImage(named: "Button_Unpressed"), for: UIControlState.normal)
             
+            assetWriter?.endSession(atSourceTime: CMTimeMake(frameNumber, 25))
+            assetWriter?.finishWriting(completionHandler: {
+                if self.assetWriter?.status == AVAssetWriterStatus.failed {
+                    print("FAILED")
+                }
+                else {
+                    print("NOT FAILED")
+                }
+            })
+            
+            UISaveVideoAtPathToSavedPhotosAlbum((file_url?.path)!, self, nil, nil)
+
             if flashMode == 1 {
                 flashOff(device: AVDevice!)
             }
@@ -157,6 +174,20 @@ class ViewController: UIViewController,AVCaptureVideoDataOutputSampleBufferDeleg
             capturing = true
             captureButton.setImage(UIImage(named: "Button_Pressed"), for: UIControlState.normal)
             try! startRecording()
+            
+            assetWriterInput = AVAssetWriterInput(mediaType: AVMediaTypeVideo,outputSettings: [AVVideoWidthKey: Int(640), AVVideoHeightKey: Int(480), AVVideoCodecKey: AVVideoCodecType.h264])
+            
+            pixelBufferAdaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: assetWriterInput!, sourcePixelBufferAttributes:
+                [ kCVPixelBufferPixelFormatTypeKey as String : Int(kCVPixelFormatType_32BGRA)])
+            
+            
+            assetWriter = try! AVAssetWriter(outputURL: getURL(), fileType: AVFileTypeMPEG4)
+            assetWriter?.add(assetWriterInput!)
+            assetWriterInput?.expectsMediaDataInRealTime = true
+            
+            assetWriter?.startWriting()
+            assetWriter?.startSession(atSourceTime: kCMTimeZero)
+            
             if flashMode == 1 {
                 flashOn(device: AVDevice!)
             }
@@ -292,7 +323,8 @@ class ViewController: UIViewController,AVCaptureVideoDataOutputSampleBufferDeleg
             recognitionTask.cancel()
             self.recognitionTask = nil
         }
-        
+        self.secondsWithoutMouthMovement = 0
+
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(AVAudioSessionCategoryRecord)
         try audioSession.setMode(AVAudioSessionModeMeasurement)
@@ -312,7 +344,7 @@ class ViewController: UIViewController,AVCaptureVideoDataOutputSampleBufferDeleg
             var isFinal = false
             
             if let result = result {
-                if self.secondsWithoutMouthMovement > 10 {
+                if self.secondsWithoutMouthMovement > 2 {
                     self.switchCameraView()
                     self.secondsWithoutMouthMovement = 0
                     //                    print(result.bestTranscription.formattedString)
@@ -357,13 +389,21 @@ class ViewController: UIViewController,AVCaptureVideoDataOutputSampleBufferDeleg
             guard let features = allFeatures else { return }
             for feature in features as! [CIFaceFeature] {
                 if(feature.hasSmile) {
-                    //                    print("Talking")
+//                                        print("Talking")
                     secondsWithoutMouthMovement = 0
                 }
                 else{
-                    //                    print("Not talking")
+//                                        print("Not talking")
                     secondsWithoutMouthMovement = secondsWithoutMouthMovement + 1
                 }
+            }
+            if(capturing) {
+                let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+                if (assetWriterInput?.isReadyForMoreMediaData)! {
+                    pixelBufferAdaptor?.append(imageBuffer!, withPresentationTime: CMTimeMake(frameNumber, 25))
+                }
+                frameNumber += 1
+                assetWriterInput?.markAsFinished()
             }
         }
     }
@@ -381,4 +421,10 @@ class ViewController: UIViewController,AVCaptureVideoDataOutputSampleBufferDeleg
         }
     }
 
+    func getURL() -> URL {
+        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+        file_url = paths[0].appendingPathComponent("output.mov")
+        return file_url!
+    }
+    
 }
